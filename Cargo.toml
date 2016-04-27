@@ -1,0 +1,17 @@
+[package]
+name = "psodropcheck"
+version = "1.0.0"
+authors = ["Jake"]
+
+[dependencies]
+time = "0.1" 
+byteorder = "0.5.1"
+#gtk = {version = "*", features=["v3_16"]}
+gtk = "*"
+gdk = "*"
+glib = "*"
+pango = "*"
+
+#[dependencies.gtk]
+#version = "0.0.7"
+#features = ["v3_16"]
