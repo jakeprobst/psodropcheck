@@ -273,7 +273,7 @@ impl ItemDrop {
 
     pub fn getchanges(&mut self) -> Vec<String> {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        let mut out: Vec<String> = Vec::new();
+        let mut newdrops = BTreeSet::new();
         for area in 0..AREACOUNT {
             for item in 0..MAXITEMS {
                 let offset = self.dropoffset + AREASTEP * area + DROPSTEP * item;
@@ -281,18 +281,22 @@ impl ItemDrop {
                 let mut buf:[u8; 12] = [0; 12];
                 f.read(&mut buf).unwrap();
                 
-                let is = item::Item::new(buf);
-                if !self.seen.contains(&buf) {
-                    match self.item2string(&is) {
-                        Some(s) => {
-                            out.push(s);
-                            self.seen.insert(buf);
-                        },
-                        None => {}
-                    }
-                }
+                newdrops.insert(buf);
             }
         }
+
+        let mut out: Vec<String> = Vec::new();
+        for item in newdrops.difference(&self.seen) {
+            let is = item::Item::new(*item);
+            match self.item2string(&is) {
+                Some(s) => {
+                    out.push(s);
+                },
+                None => {}
+            }
+        }
+        self.seen = newdrops;
+        
         return out;
     }
 }
