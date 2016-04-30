@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
-use std::collections::{BTreeMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 //use byteorder::{ByteOrder, BigEndian};
 
@@ -31,8 +31,8 @@ pub struct ItemDrop {
     weapons: BTreeMap<String, String>,
     specials: BTreeMap<String, String>,
     techs: BTreeMap<String, String>,
-    //seen: BTreeSet<[u8; 12]>,
-    seen: Vec<[u8; 12]>,
+    seen: BTreeSet<[u8; 12]>,
+    //seen: Vec<[u8; 12]>,
     pub dropoffset: u64,
 }
 
@@ -43,8 +43,8 @@ impl ItemDrop {
             weapons: ItemDrop::parsefile(WEPFILE),
             specials: ItemDrop::parsefile(SPECFILE),
             techs: ItemDrop::parsefile(TECHFILE),
-            //seen: BTreeSet::new(),
-            seen: Vec::new(),
+            seen: BTreeSet::new(),
+            //seen: Vec::new(),
             dropoffset: 0,
         }
     }
@@ -143,7 +143,7 @@ impl ItemDrop {
         }
     }
 
-    fn printweapon(&self, item: &[u8; 12]) -> String {
+    fn printweapon(&self, item: &[u8; 12]) -> Option<String> {
         let id = val2str(&item[0..3]);
         let grind = &item[3];
         let special = val2str(&[item[4] & 0x3F]);
@@ -157,12 +157,17 @@ impl ItemDrop {
 
         let name = match self.weapons.get(&id) {
             Some(v) => v.as_str(),
-            None => "Error"
+            None => return None
         };
         
         let mut output = String::new();
         if special != "00" {
-            write!(output, "{} ", self.specials.get(&special).unwrap()).unwrap();
+            match self.specials.get(&special) {
+                Some(spec) => {
+                    write!(output, "{} ", spec).unwrap();
+                },
+                None => {}
+            }
         }
         write!(output, "{}", name).unwrap();
         if *grind != 0 {
@@ -181,7 +186,7 @@ impl ItemDrop {
             };
         }
         write!(output, " {}", attrnum.join("/")).unwrap();
-        return output;
+        return Some(output);
     }
     
     fn printarmor(&self, item: &[u8; 12]) ->String {
@@ -255,7 +260,7 @@ impl ItemDrop {
 
     fn item2string(&self, item: &[u8; 12]) -> Option<String> {
         match item[0] {
-            0x00 => Some(self.printweapon(item)),
+            0x00 => self.printweapon(item),
             0x01 => match item[1] {
                 0x01 => Some(self.printarmor(item)),
                 0x02 => Some(self.printshield(item)),
@@ -274,8 +279,8 @@ impl ItemDrop {
 
     pub fn getchanges(&mut self) -> Vec<String> {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        //let mut newdrops = BTreeSet::new();
-        let mut newdrops = Vec::new();
+        let mut newdrops = BTreeSet::new();
+        //let mut newdrops = Vec::new();
         for area in 0..AREACOUNT {
             for item in 0..MAXITEMS {
                 let offset = self.dropoffset + AREASTEP * area + DROPSTEP * item;
@@ -283,22 +288,18 @@ impl ItemDrop {
                 let mut buf:[u8; 12] = [0; 12];
                 f.read(&mut buf).unwrap();
 
-                newdrops.push(buf);
-                //newdrops.insert(buf);
+                newdrops.insert(buf);
             }
         }
 
         let mut out: Vec<String> = Vec::new();
-        for i in 0..self.seen.len() {
-            if self.seen[i] != newdrops[i] {
-                match self.item2string(&newdrops[i]) {
-                    Some(s) => {
-                        out.push(s);
-                    },
-                    None => {}
-                }
+        for &i in newdrops.difference(&self.seen) {
+            match self.item2string(&i) {
+                Some(s) => {
+                    out.push(s);
+                },
+                None => {}
             }
-
         }
 
         self.seen = newdrops;
