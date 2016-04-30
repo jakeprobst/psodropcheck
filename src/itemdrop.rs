@@ -1,9 +1,8 @@
 use std::fs::File;
 use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap};
 use std::fmt::Write;
-//use byteorder::{ByteOrder, BigEndian};
 
 const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
 const MAGICDROPOFFSET: u64 = 24;
@@ -31,9 +30,27 @@ pub struct ItemDrop {
     weapons: BTreeMap<String, String>,
     specials: BTreeMap<String, String>,
     techs: BTreeMap<String, String>,
-    seen: BTreeSet<[u8; 12]>,
-    //seen: Vec<[u8; 12]>,
+    seen: BTreeMap<[u8; 12], u32>,
     pub dropoffset: u64,
+}
+
+
+// TODO: implement difference for BTreeMap?
+fn finddiff<T: Ord + Clone>(a: &BTreeMap<T, u32>, b: &BTreeMap<T, u32>) -> Vec<T> {
+    let mut out:Vec<T> = Vec::new();
+
+    for (key, value) in a {
+        if let Some(count) = b.get(key) {
+            if value > count {
+                out.push(key.clone());
+            }
+        }
+        else {
+            out.push(key.clone());
+        }
+    }
+
+    return out;
 }
 
 impl ItemDrop {
@@ -43,8 +60,7 @@ impl ItemDrop {
             weapons: ItemDrop::parsefile(WEPFILE),
             specials: ItemDrop::parsefile(SPECFILE),
             techs: ItemDrop::parsefile(TECHFILE),
-            seen: BTreeSet::new(),
-            //seen: Vec::new(),
+            seen: BTreeMap::new(),
             dropoffset: 0,
         }
     }
@@ -279,7 +295,7 @@ impl ItemDrop {
 
     pub fn getchanges(&mut self) -> Vec<String> {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        let mut newdrops = BTreeSet::new();
+        let mut newdrops:BTreeMap<[u8; 12], u32> = BTreeMap::new();
         //let mut newdrops = Vec::new();
         for area in 0..AREACOUNT {
             for item in 0..MAXITEMS {
@@ -288,12 +304,23 @@ impl ItemDrop {
                 let mut buf:[u8; 12] = [0; 12];
                 f.read(&mut buf).unwrap();
 
-                newdrops.insert(buf);
+                //newdrops.insert(buf);
+
+                if !newdrops.contains_key(&buf) {
+                    newdrops.insert(buf, 0);
+                }
+
+                match newdrops.get_mut(&buf) {
+                    Some(a) => {
+                        *a = *a + 1;
+                    },
+                    None => {}
+                }
             }
         }
 
         let mut out: Vec<String> = Vec::new();
-        for &i in newdrops.difference(&self.seen) {
+        for i in finddiff(&newdrops, &self.seen) {
             match self.item2string(&i) {
                 Some(s) => {
                     out.push(s);
