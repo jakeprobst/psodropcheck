@@ -3,16 +3,44 @@
 //use std::fmt::Display;
 //use std::fmt::Formatter;
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Item {
-    pub data: [u8; 12],
-    //pub timestamp: u64,
+//#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+
+pub struct Weapon {
+    pub name: String,
+    pub grind: u8,
+    pub special: String,
+    pub native: u8,
+    pub abeast: u8,
+    pub machine: u8,
+    pub dark: u8,
+    pub hit: u8,
 }
 
-impl Item {
-    pub fn new(data: [u8; 12]) -> Item {
-        return Item {data: data};
-    }
+pub struct Armor {
+    pub name: String,
+    pub slots: u8,
+    pub dfp: u8,
+    pub evp: u8,
+}
+
+pub struct Shield {
+    pub name: String,
+    pub dfp: u8,
+    pub evp: u8,
+}
+
+pub struct Misc {
+    pub name: String,
+    pub count: u8,
+}
+
+pub struct Mag {
+    pub name: String,
+}
+
+pub struct Tech {
+    pub name: String,
+    pub level: u8,
 }
 
 /*impl std::fmt::Display for Item {

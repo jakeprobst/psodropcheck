@@ -3,20 +3,30 @@ use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
 use std::collections::{BTreeMap};
 //use byteorder::{ByteOrder, BigEndian};
-use std::fmt::Write;
+//use std::fmt::Write;
+use item;
 
 const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
 const MAGICDROPOFFSET: u64 = 24;
 const DROPSTEP: u64 = 0x24;
 const AREASTEP: u64 =  0x1B00;
 const AREACOUNT: u64 = 18;
-const MINSTARTADDR: u64 = 0x6900000;
+//const MINSTARTADDR: u64 = 0x6900000;
+const MINSTARTADDR: u64 = 0x0;
 const MAXITEMS: u64 = 150;
 
 const WEPFILE: &'static str = "items.txt";
 const SPECFILE: &'static str = "specials.txt";
 const TECHFILE: &'static str = "techs.txt";
 
+pub enum ItemType {
+    Weapon(item::Weapon),
+    Armor(item::Armor),
+    Shield(item::Shield),
+    Misc(item::Misc),
+    Mag(item::Mag),
+    Tech(item::Tech),
+}
 
 fn val2str(data: &[u8]) -> String {
     let mut out = String::new();
@@ -160,9 +170,9 @@ impl ItemDrop {
         }
     }
 
-    fn printweapon(&self, item: &[u8; 12]) -> Option<String> {
+    fn parseweapon(&self, item: &[u8; 12]) -> Option<ItemType> {
         let id = val2str(&item[0..3]);
-        let grind = &item[3];
+        let grind = item[3];
         let special = val2str(&[item[4] & 0x3F]);
 
         let mut attr = BTreeMap::new();
@@ -173,145 +183,125 @@ impl ItemDrop {
         }
 
         let name = match self.weapons.get(&id) {
-            Some(v) => v.as_str(),
+            Some(v) => v.clone(),
             None => return None
         };
         
-        let mut output = String::new();
-        if special != "00" {
-            match self.specials.get(&special) {
-                Some(spec) => {
-                    write!(output, "{} ", spec).unwrap();
-                },
-                None => {}
-            }
-        }
-        write!(output, "{}", name).unwrap();
-        if *grind != 0 {
-            write!(output, " +{}", *grind).unwrap();
-        }
+        let specialtext = match self.specials.get(&special) {
+            Some(spec) => spec.clone(),
+            None => String::new()
+        };
 
-        let mut attrnum: Vec<String> = vec![String::new(); 5]; //= Vec::new(); //Vec<u8>;
+        let mut attrnum: Vec<u8> = vec![0; 5]; //= Vec::new(); //Vec<u8>;
         for i in 1..6 {
             match attr.get(&i) {
                 Some(v) => {
-                    attrnum[(i-1) as usize] = v.to_string();
+                    attrnum[(i-1) as usize] = *v;
                 },
                 None => {
-                    attrnum[(i-1) as usize] = String::from("0");
+                    attrnum[(i-1) as usize] = 0;
                 }
             };
         }
 
-        if attrnum[4] != "0" {
-            attrnum[4] = format!("<span foreground=\"red\">{}</span>", attrnum[4]);
-        }
-
-        write!(output, " {}", attrnum.join("/")).unwrap();
-
-        let mut style = "normal";
-        if let Some(_) = attr.get(&5) {
-            style = "bold";
-        }
-
-        /*if israre(&item[0..3]) {
-            bcolor = 0x7f;
-        }*/
-        
-        //output = String::from("a") + output.as_str() + "v";
-        output = format!("<span weight=\"{}\">{}</span>", style, output);
-        return Some(output);
+        return Some(ItemType::Weapon(item::Weapon {
+            name: name,
+            grind: grind,
+            special: specialtext,
+            native: attrnum[0],
+            abeast: attrnum[1],
+            machine: attrnum[2],
+            dark: attrnum[3],
+            hit: attrnum[4]
+        }));
     }
     
-    fn printarmor(&self, item: &[u8; 12]) ->String {
+    fn parsearmor(&self, item: &[u8; 12]) -> Option<ItemType> {
         let id = val2str(&item[0..3]);
 
-        let name = self.weapons.get(&id).unwrap();
-        //let slots = BigEndian::read_i16(&item[4..6]);
+        let name = self.weapons.get(&id).unwrap().clone();
         let slots = item[5];
         let dfp = item[6];
         let evp= item[8];
-        //let dfp = BigEndian::read_i16(&item[6..8]);
-        //let evp = BigEndian::read_i16(&item[9..11]);
-
-        let mut output = String::new();
-        write!(output, "{} [{}s +{}d +{}e]", name ,slots, dfp, evp).unwrap();
-        return output;
+        
+        return Some(ItemType::Armor(item::Armor {
+            name: name,
+            slots: slots,
+            dfp: dfp,
+            evp: evp
+        }));
     }
     
-    fn printshield(&self, item: &[u8; 12]) ->String {
+    fn parseshield(&self, item: &[u8; 12]) -> Option<ItemType> {
         let id = val2str(&item[0..3]);
 
-        let name = self.weapons.get(&id).unwrap();
-        //let dfp = BigEndian::read_i16(&item[5..7]);
-        //let evp = BigEndian::read_i16(&item[9..11]);
+        let name = self.weapons.get(&id).unwrap().clone();
         let dfp = item[6];
         let evp= item[8];
         
-        let mut output = String::new();
-        write!(output, "{} [+{}d +{}e]", name , dfp, evp).unwrap();
-        return output;
+        return Some(ItemType::Shield(item::Shield {
+            name: name,
+            dfp: dfp,
+            evp: evp
+        }));
     }
     
-    fn printmisc(&self, item: &[u8; 12]) -> String {
+    fn parsemisc(&self, item: &[u8; 12]) -> Option<ItemType> {
         let id = val2str(&item[0..3]);
 
-        //let name = self.weapons.get(&id).unwrap();
         let name = match self.weapons.get(&id) {
-            Some(n) => n.as_str(),
-            None => "Unknown"
+            Some(n) => n.clone(),
+            None => format!("[{}]", id)
         };
-        let count = item[5];
-        
-        let mut output = String::new();
-        if count != 0 {
-            write!(output, "{} x{}", name , count).unwrap();
-        }
-        else {
-            write!(output, "{}", name).unwrap();
-        }
-        return output;
+
+        return Some(ItemType::Misc(item::Misc {
+            name: name,
+            count: item[5]
+        }));
     }
     
-    fn printmag(&self, item: &[u8; 12]) -> String {
+    fn parsemag(&self, item: &[u8; 12]) -> Option<ItemType> {
         let id = val2str(&item[0..3]);
 
-        let name = self.weapons.get(&id).unwrap();
-        let mut output = String::new();
-        write!(output, "{}", name).unwrap();
-        return output;
+        let name = self.weapons.get(&id).unwrap().clone();
+        return Some(ItemType::Mag(item::Mag {
+            name: name,
+        }));
     }
     
-    fn printtech(&self, item: &[u8; 12]) -> String {
+    fn parsetech(&self, item: &[u8; 12]) -> Option<ItemType> {
         let level = item[2]+1;
         let id = val2str(&[item[4]]);
 
-        let name = self.techs.get(&id).unwrap();
-        let mut output = String::new();
-        write!(output, "{} {}", name, level).unwrap();
-        return output;
+        let name = self.techs.get(&id).unwrap().clone();
+
+        return Some(ItemType::Tech(item::Tech {
+            name: name,
+            level: level
+        }));
+        
     }
 
-    fn item2string(&self, item: &[u8; 12]) -> Option<String> {
+    fn parseitem(&self, item: &[u8; 12]) ->Option<ItemType> {
         match item[0] {
-            0x00 => self.printweapon(item),
+            0x00 => self.parseweapon(item),
             0x01 => match item[1] {
-                0x01 => Some(self.printarmor(item)),
-                0x02 => Some(self.printshield(item)),
-                0x03 =>Some(self.printmisc(item)),
+                0x01 => self.parsearmor(item),
+                0x02 => self.parseshield(item),
+                0x03 => self.parsemisc(item),
                 _ => None
             },
 
-            0x02 => Some(self.printmag(item)),
+            0x02 => self.parsemag(item),
             0x03 => match item[1] {
-                0x02 => Some(self.printtech(item)),
-                _ => Some(self.printmisc(item)),
+                0x02 => self.parsetech(item),
+                _ => self.parsemisc(item),
             },
             _ => None,
         }
     }
 
-    pub fn getchanges(&mut self) -> Vec<String> {
+    pub fn getchanges(&mut self) -> Vec<ItemType> {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
         let mut newdrops:BTreeMap<[u8; 12], u32> = BTreeMap::new();
         //let mut newdrops = Vec::new();
@@ -337,9 +327,10 @@ impl ItemDrop {
             }
         }
 
-        let mut out: Vec<String> = Vec::new();
+        let mut out: Vec<ItemType> = Vec::new();
         for i in finddiff(&newdrops, &self.seen) {
-            match self.item2string(&i) {
+            //match self.item2string(&i) {
+            match self.parseitem(&i) {
                 Some(s) => {
                     out.push(s);
                 },
