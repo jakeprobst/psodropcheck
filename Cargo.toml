@@ -6,8 +6,8 @@ authors = ["Jake"]
 [dependencies]
 time = "0.1" 
 byteorder = "0.5.1"
-#gtk = {version = "*", features=["v3_16"]}
-gtk = "*"
+gtk = {version = "*", features=["v3_16"]}
+#gtk = "*"
 gdk = "*"
 glib = "*"
 pango = "*"
