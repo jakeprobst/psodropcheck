@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
 use std::collections::{BTreeMap};
+//use byteorder::{ByteOrder, BigEndian};
 use std::fmt::Write;
 
 const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
@@ -10,7 +11,7 @@ const DROPSTEP: u64 = 0x24;
 const AREASTEP: u64 =  0x1B00;
 const AREACOUNT: u64 = 18;
 const MINSTARTADDR: u64 = 0x6900000;
-const MAXITEMS: u64 = 64;
+const MAXITEMS: u64 = 150;
 
 const WEPFILE: &'static str = "items.txt";
 const SPECFILE: &'static str = "specials.txt";
@@ -201,7 +202,24 @@ impl ItemDrop {
                 }
             };
         }
+
+        if attrnum[4] != "0" {
+            attrnum[4] = format!("<span foreground=\"red\">{}</span>", attrnum[4]);
+        }
+
         write!(output, " {}", attrnum.join("/")).unwrap();
+
+        let mut style = "normal";
+        if let Some(_) = attr.get(&5) {
+            style = "bold";
+        }
+
+        /*if israre(&item[0..3]) {
+            bcolor = 0x7f;
+        }*/
+        
+        //output = String::from("a") + output.as_str() + "v";
+        output = format!("<span weight=\"{}\">{}</span>", style, output);
         return Some(output);
     }
     
@@ -211,8 +229,8 @@ impl ItemDrop {
         let name = self.weapons.get(&id).unwrap();
         //let slots = BigEndian::read_i16(&item[4..6]);
         let slots = item[5];
-        let dfp = item[7];
-        let evp= item[10];
+        let dfp = item[6];
+        let evp= item[8];
         //let dfp = BigEndian::read_i16(&item[6..8]);
         //let evp = BigEndian::read_i16(&item[9..11]);
 
@@ -225,10 +243,10 @@ impl ItemDrop {
         let id = val2str(&item[0..3]);
 
         let name = self.weapons.get(&id).unwrap();
-        //let dfp = BigEndian::read_i16(&item[6..8]);
+        //let dfp = BigEndian::read_i16(&item[5..7]);
         //let evp = BigEndian::read_i16(&item[9..11]);
-        let dfp = item[7];
-        let evp= item[10];
+        let dfp = item[6];
+        let evp= item[8];
         
         let mut output = String::new();
         write!(output, "{} [+{}d +{}e]", name , dfp, evp).unwrap();

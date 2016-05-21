@@ -4,7 +4,6 @@ extern crate gtk;
 extern crate gdk;
 extern crate glib;
 extern crate pango;
-mod item;
 mod itemdrop;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -40,7 +39,7 @@ fn main() {
                 }
             }
             
-            sleep(Duration::new(1,0));
+            sleep(Duration::new(0,25000000));
         }
     });
     
@@ -63,10 +62,10 @@ fn main() {
     //buffer.insert(&mut buffer.get_end_iter(), "finding memory offset...");
 
     let bnewitems = newitems.clone();
-    timeout_add_seconds(1, move || {
+    timeout_add(250, move || {
         let mut data = bnewitems.lock().unwrap();
         while let Some(item) = data.pop_front() {
-            buffer.insert(&mut buffer.get_end_iter(), item.as_str());
+            buffer.insert_markup(&mut buffer.get_end_iter(), item.as_str());
             buffer.insert(&mut buffer.get_end_iter(), "\n");
         }
         textbox.scroll_to_iter(&mut buffer.get_end_iter(), 0.0, false, 0.0, 0.0);
