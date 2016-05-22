@@ -7,11 +7,7 @@ authors = ["Jake"]
 time = "0.1" 
 byteorder = "0.5.1"
 gtk = {version = "*", features=["v3_16"]}
-#gtk = "*"
 gdk = "*"
 glib = "*"
 pango = "*"
-
-#[dependencies.gtk]
-#version = "0.0.7"
-#features = ["v3_16"]
+memmem = "*"

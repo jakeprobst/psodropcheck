@@ -2,8 +2,8 @@ use std::fs::File;
 use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
 use std::collections::{BTreeMap};
-//use byteorder::{ByteOrder, BigEndian};
-//use std::fmt::Write;
+use memmem::{Searcher, TwoWaySearcher};
+use std::vec;
 use item;
 
 const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
@@ -100,39 +100,23 @@ impl ItemDrop {
         return out;
     }
     
-    // slow as fuckkkkk
     fn findmagicinrange(&self, start: u64, end: u64) -> Option<u64> {
-        let mut dropoffset: u64 = 0;
-        let mut dvindex = 0;
-
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
         f.seek(SeekFrom::Start(start)).unwrap();
-        for i in start..end+1 {
-            let mut buf: [u8; 1] = [0];
-            match f.read(&mut buf) {
-                Ok(_) => {
-                }
-                Err(_) => {
-                    break;
-                }
-            }
-            let val = buf[0];
 
-            if val == MAGICDROPVALUE[dvindex] {
-                dvindex += 1;
-            }
-            else {
-                dvindex = 0;
-            }
+        let mut buf = vec::from_elem(0, end as usize - start as usize);
+        f.read(&mut buf).unwrap();
 
-            if dvindex == MAGICDROPVALUE.len() {
-                dropoffset = i - MAGICDROPVALUE.len() as u64;
-                dvindex = 0
-            }
-        }
+        let magicdropvalue = MAGICDROPVALUE; // rust is dumb, consts dont live long enough I guess?
+        let search = TwoWaySearcher::new(&magicdropvalue);
 
+        let dropoffset = match search.search_in(buf.as_slice()) {
+            Some(off) => off as u64,
+            None => 0
+        };
+        
         if dropoffset != 0 {
-            return Some(dropoffset);
+            return Some(dropoffset + start - 1);
         }
         else {
             return None;

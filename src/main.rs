@@ -4,6 +4,8 @@ extern crate gtk;
 extern crate gdk;
 extern crate glib;
 extern crate pango;
+extern crate memmem;
+
 mod itemdrop;
 mod item;
 use std::fmt::Write;
@@ -98,7 +100,6 @@ fn main() {
             data.push_back(String::from("finding offsets..."));
         }
         itemdrop.findoffsets();
-        println!("found 0x{:X}", itemdrop.dropoffset);
         {
             let mut data = anewitems.lock().unwrap();
             let s = format!("found: 0x{:X}\n", itemdrop.dropoffset);
