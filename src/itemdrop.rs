@@ -2,16 +2,17 @@ use std::fs::File;
 use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
 use std::collections::{BTreeMap};
+use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use memmem::{Searcher, TwoWaySearcher};
 use std::vec;
 use item;
 
 const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
 const MAGICDROPOFFSET: u64 = 24;
+const MAGICDROPOFFSETPOINTER: u64 = 0x00A8D8A4;// ephinea 1.7.0?
 const DROPSTEP: u64 = 0x24;
 const AREASTEP: u64 =  0x1B00;
 const AREACOUNT: u64 = 18;
-//const MINSTARTADDR: u64 = 0x6900000;
 const MINSTARTADDR: u64 = 0x0;
 const MAXITEMS: u64 = 150;
 
@@ -122,8 +123,19 @@ impl ItemDrop {
             return None;
         }
     }
-    
+
+
     pub fn findoffsets(&mut self) {
+        let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
+        f.seek(SeekFrom::Start(MAGICDROPOFFSETPOINTER)).unwrap();
+        let mut buf: [u8; 4] = [0, 0, 0, 0];
+        f.read(&mut buf).unwrap();
+
+        println!("off? {:X}", LittleEndian::read_i32(&buf));
+        self.dropoffset = 16 + LittleEndian::read_i32(&buf) as u64;
+    }
+    
+    pub fn findoffsets_scan(&mut self) {
         let f = File::open(format!("/proc/{}/maps", self.pid)).unwrap();
         let br = BufReader::new(f);
 
