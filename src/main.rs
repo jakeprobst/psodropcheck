@@ -9,7 +9,7 @@ extern crate memmem;
 mod itemdrop;
 mod item;
 use std::fmt::Write;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use std::sync::{Arc, Mutex};
 use gtk::prelude::*;
 use gdk::{WindowTypeHint};
@@ -79,14 +79,16 @@ fn techstring(item: item::Tech) -> String {
 }
 
 fn item2string(item: itemdrop::ItemType) -> String {
-    match item {
+    let s = match item {
         itemdrop::ItemType::Weapon(item) => weaponstring(item),
         itemdrop::ItemType::Armor(item) => armorstring(item),
         itemdrop::ItemType::Shield(item) => shieldstring(item),
         itemdrop::ItemType::Misc(item) => miscstring(item),
         itemdrop::ItemType::Mag(item) => magstring(item),
         itemdrop::ItemType::Tech(item) => techstring(item)
-    }
+    };
+
+    format!("<span color=\"black\">{}</span>", s)
 }
 
 fn main() {
@@ -129,10 +131,10 @@ fn main() {
     //gtk::WidgetExt::override_font(&textbox, &pango::FontDescription::from_string("Deja Vu Sans Mono 12"));
 
 
-    //let scrollb = ScrolledWindow::new(None, None);
-    //scrollb.add(&textbox);
+    /*let scrollb = ScrolledWindow::new(None, None);
+    scrollb.add(&textbox);
     
-    //window.add(&scrollb);
+    window.add(&scrollb);*/
 
     //let buffer = textbox.get_buffer().unwrap();
     //buffer.insert(&mut buffer.get_end_iter(), "finding memory offset...");
@@ -140,29 +142,84 @@ fn main() {
     let tree = gtk::TreeView::new();
     tree.set_headers_visible(false);
 
-    for i in &[0, 1, 2] {
+    let selection = tree.get_selection();
+    selection.set_mode(gtk::SelectionMode::None);
+
+    /*for &(i, vis) in &[(0, false), (1, true)] {
         let col = gtk::TreeViewColumn::new();
         let cell = gtk::CellRendererText::new();
         col.pack_start(&cell, true);
+        col.set_spacing(0);
 
-        col.add_attribute(&cell, "text", *i);
+        col.add_attribute(&cell, "markup", i);
+        cell.set_visible(vis);
+        //col.add_attribute(&cell, "ypad", 0);
+        //col.set_padding(&cell, 0, 0);
+        cell.set_padding(0, 0);
         tree.append_column(&col);
-    }
+}*/
+    let col = gtk::TreeViewColumn::new();
+    let cell = gtk::CellRendererText::new();
+    col.pack_start(&cell, true);
+    col.set_spacing(0);
 
-    let model = gtk::ListStore::new(&[u32::static_type(), String::static_type(), String::static_type()]);
+    col.add_attribute(&cell, "markup", 0);
+    //cell.set_visible(vis);
+    //col.add_attribute(&cell, "ypad", 0);
+    //col.set_padding(&cell, 0, 0);
+    cell.set_padding(0, 0);
+    tree.append_column(&col);
+        
+    gtk::WidgetExt::override_font(&tree, &pango::FontDescription::from_string("Deja Vu Sans Mono 12"));
+
+    //let model = gtk::ListStore::new(&[u32::static_type(), String::static_type(), String::static_type()]);
+    let mut rowlookup = HashMap::new();
+    
+    //let model = gtk::ListStore::new(&[u32::static_type(), String::static_type()]);
+    let model = gtk::ListStore::new(&[String::static_type()]);
 
     tree.set_model(Some(&model));
-    window.add(&tree);
+
+    let scrollb = ScrolledWindow::new(None, None);
+    scrollb.add(&tree);
+    
+    window.add(&scrollb);
+
+    
+    //window.add(&tree);
 
     let bnewitems = newitems.clone();
     timeout_add_seconds(1, move || {
         let mut data = bnewitems.lock().unwrap();
+        let mut last_iter = None;
         while let Some(item) = data.pop_front() {
+
+            match item {
+                itemdrop::DropChange::Add(id, drop) => {
+                    //let iter = model.insert_with_values(None, &[0, 1], &[&id, &item2string(drop)]);
+                    let iter = model.insert_with_values(None, &[0], &[&item2string(drop)]);
+                    last_iter = Some(iter.clone());
+                    rowlookup.insert(id, iter);
+                }
+                itemdrop::DropChange::Remove(id) => {
+                    if let Some(iter) = rowlookup.get(&id) {
+                        let txt = model.get_value(iter, 0).downcast::<String>().unwrap().get().unwrap();
+                        model.set_value(iter, 0, &format!("<span fgalpha=\"50%\" style=\"italic\">{}</span>", txt).to_value());
+                    }
+                }
+            }
             //buffer.insert_markup(&mut buffer.get_end_iter(), item.as_str());
             //buffer.insert(&mut buffer.get_end_iter(), "\n");
-            println!("item: {:#?}", item);
+            //println!("item: {:#?}", item);
         }
         //textbox.scroll_to_iter(&mut buffer.get_end_iter(), 0.0, false, 0.0, 0.0);
+        //let path = gtk::TreePath::new_from_string(&format!("{}", model.iter_n_children(None)-1));
+        //let path
+        if let Some(iter) = last_iter {
+            if let Some(path) = model.get_path(&iter) { // Some(path) -> Some(&path)
+                tree.scroll_to_cell(Some(&path), None, false, 0.0, 0.0); 
+            }
+        }
         return Continue(true);
     });
 
