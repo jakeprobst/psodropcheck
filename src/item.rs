@@ -5,6 +5,7 @@
 
 //#[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 
+#[derive(Debug)]
 pub struct Weapon {
     pub name: String,
     pub grind: u8,
@@ -16,6 +17,7 @@ pub struct Weapon {
     pub hit: u8,
 }
 
+#[derive(Debug)]
 pub struct Armor {
     pub name: String,
     pub slots: u8,
@@ -23,21 +25,25 @@ pub struct Armor {
     pub evp: u8,
 }
 
+#[derive(Debug)]
 pub struct Shield {
     pub name: String,
     pub dfp: u8,
     pub evp: u8,
 }
 
+#[derive(Debug)]
 pub struct Misc {
     pub name: String,
     pub count: u8,
 }
 
+#[derive(Debug)]
 pub struct Mag {
     pub name: String,
 }
 
+#[derive(Debug)]
 pub struct Tech {
     pub name: String,
     pub level: u8,

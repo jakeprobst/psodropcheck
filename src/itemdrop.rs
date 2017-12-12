@@ -1,16 +1,17 @@
 use std::fs::File;
 use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
-use std::collections::{BTreeMap};
+use std::collections::{BTreeMap, BTreeSet};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use memmem::{Searcher, TwoWaySearcher};
 use std::vec;
+use std::cmp;
 use item;
 
 const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
 const MAGICDROPOFFSET: u64 = 24;
 const MAGICDROPOFFSETPOINTER: u64 = 0x00A8D8A4;// ephinea 1.7.0?
-const DROPSTEP: u64 = 0x24;
+const DROPSTEP: usize = 0x24;
 const AREASTEP: u64 =  0x1B00;
 const AREACOUNT: u64 = 18;
 const MINSTARTADDR: u64 = 0x0;
@@ -20,6 +21,7 @@ const WEPFILE: &'static str = "items.txt";
 const SPECFILE: &'static str = "specials.txt";
 const TECHFILE: &'static str = "techs.txt";
 
+#[derive(Debug)]
 pub enum ItemType {
     Weapon(item::Weapon),
     Armor(item::Armor),
@@ -27,6 +29,12 @@ pub enum ItemType {
     Misc(item::Misc),
     Mag(item::Mag),
     Tech(item::Tech),
+}
+
+#[derive(Debug)]
+pub enum DropChange {
+    Add(u32, ItemType),
+    Remove(u32)
 }
 
 fn val2str(data: &[u8]) -> String {
@@ -42,13 +50,14 @@ pub struct ItemDrop {
     weapons: BTreeMap<String, String>,
     specials: BTreeMap<String, String>,
     techs: BTreeMap<String, String>,
-    seen: BTreeMap<[u8; 12], u32>,
+    //seen: BTreeMap<DropBytes, u32>,
+    seen: BTreeSet<DropBytes>,
     pub dropoffset: u64,
 }
 
 
 // TODO: implement difference for BTreeMap?
-fn finddiff<T: Ord + Clone>(a: &BTreeMap<T, u32>, b: &BTreeMap<T, u32>) -> Vec<T> {
+/*fn finddiff<T: Ord + Clone>(a: &BTreeMap<T, u32>, b: &BTreeMap<T, u32>) -> Vec<T> {
     let mut out:Vec<T> = Vec::new();
 
     for (key, value) in a {
@@ -63,7 +72,7 @@ fn finddiff<T: Ord + Clone>(a: &BTreeMap<T, u32>, b: &BTreeMap<T, u32>) -> Vec<T
     }
 
     return out;
-}
+}*/
 
 impl ItemDrop {
     pub fn new() -> ItemDrop {
@@ -72,7 +81,8 @@ impl ItemDrop {
             weapons: ItemDrop::parsefile(WEPFILE),
             specials: ItemDrop::parsefile(SPECFILE),
             techs: ItemDrop::parsefile(TECHFILE),
-            seen: BTreeMap::new(),
+            //seen: BTreeMap::new(),
+            seen: BTreeSet::new(),
             dropoffset: 0,
         }
     }
@@ -132,7 +142,8 @@ impl ItemDrop {
         f.read(&mut buf).unwrap();
 
         println!("off? {:X}", LittleEndian::read_i32(&buf));
-        self.dropoffset = 16 + LittleEndian::read_i32(&buf) as u64;
+        //self.dropoffset = 16 + LittleEndian::read_i32(&buf) as u64;
+        self.dropoffset = LittleEndian::read_i32(&buf) as u64;
     }
     
     pub fn findoffsets_scan(&mut self) {
@@ -143,7 +154,7 @@ impl ItemDrop {
             match line {
                 Ok(l) => {
                     let spl: Vec<&str> = l.split(" ").collect();
-                    if !spl[1].contains("r") || spl.last().unwrap().contains("stack") || spl[4] != "0" {
+                    if !spl[1].contains("r") || /*spl.last().unwrap().contains("stack") ||*/ spl[4] != "0" {
                         continue;
                     }
                     let range: Vec<&str> = spl[0].split("-").collect();
@@ -155,6 +166,7 @@ impl ItemDrop {
                     match self.findmagicinrange(start, end) {
                         Some(doff) => {
                             self.dropoffset = doff + MAGICDROPOFFSET;
+                            println!("o: {:X}", self.dropoffset);
                             break;
                         }
                         None => {
@@ -257,7 +269,9 @@ impl ItemDrop {
     }
     
     fn parsemag(&self, item: &[u8; 12]) -> Option<ItemType> {
-        let id = val2str(&item[0..3]);
+        let mut nitem = item.clone();
+        nitem[2] = 0; // what exists in item[2]?
+        let id = val2str(&nitem[0..3]);
 
         let name = self.weapons.get(&id).unwrap().clone();
         return Some(ItemType::Mag(item::Mag {
@@ -297,20 +311,44 @@ impl ItemDrop {
         }
     }
 
-    pub fn getchanges(&mut self) -> Vec<ItemType> {
+    pub fn getchanges(&mut self) -> Vec<DropChange> {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        let mut newdrops:BTreeMap<[u8; 12], u32> = BTreeMap::new();
+        //let mut newdrops:BTreeMap<[u8; 12], u32> = BTreeMap::new();
+        //let mut newdrops:BTreeMap<DropBytes, u32> = BTreeMap::new();
+        let mut newdrops: BTreeSet<DropBytes> = BTreeSet::new();
         //let mut newdrops = Vec::new();
         for area in 0..AREACOUNT {
             for item in 0..MAXITEMS {
-                let offset = self.dropoffset + AREASTEP * area + DROPSTEP * item;
+                let offset = self.dropoffset + AREASTEP * area + (DROPSTEP as u64) * item;
                 f.seek(SeekFrom::Start(offset)).unwrap();
-                let mut buf:[u8; 12] = [0; 12];
+                //let mut buf:[u8; DROPSTEP] = [0; DROPSTEP];
+                let mut buf:[u8; DROPSTEP] = [0; DROPSTEP];
                 f.read(&mut buf).unwrap();
+
+                /*if buf[16] != 0 || buf[17] != 0 {
+                    for b in buf.iter() {
+                        print!("{:2.X} ", b);
+                    }
+                    println!("");
+                }*/
+
+                
+                let drop = DropBytes::new(buf);
+                /*if drop.id != 0 {
+                    println!("{:#?}", drop);
+                }*/
+                
+
+                newdrops.insert(drop);
+
+                
+                /*f.seek(SeekFrom::Start(offset)).unwrap();
+                let mut buf:[u8; 12] = [0; 12];
+                f.read(&mut buf).unwrap();*/
 
                 //newdrops.insert(buf);
 
-                if !newdrops.contains_key(&buf) {
+                /*if !newdrops.contains_key(&buf) {
                     newdrops.insert(buf, 0);
                 }
 
@@ -319,19 +357,29 @@ impl ItemDrop {
                         *a = *a + 1;
                     },
                     None => {}
-                }
+                }*/
             }
         }
 
-        let mut out: Vec<ItemType> = Vec::new();
-        for i in finddiff(&newdrops, &self.seen) {
+        let mut out: Vec<DropChange> = Vec::new();
+        /*for i in finddiff(&newdrops, &self.seen) {
             //match self.item2string(&i) {
-            match self.parseitem(&i) {
+            match self.parseitem(&i.bytes[0..12]) {
                 Some(s) => {
                     out.push(s);
                 },
                 None => {}
             }
+    }*/
+
+        for d in newdrops.difference(&self.seen) {
+             if let Some(s) = self.parseitem(&d.item) {
+                 out.push(DropChange::Add(d.id, s));
+             }
+        }
+
+        for d in self.seen.difference(&newdrops) {
+            out.push(DropChange::Remove(d.id));
         }
 
         self.seen = newdrops;
@@ -339,3 +387,97 @@ impl ItemDrop {
         return out;
     }
 }
+
+
+#[derive(Debug)]
+pub struct DropBytes {
+    //pub bytes: [u8; DROPSTEP],
+    id: u32, // I think this is a global id, at least
+    local_id: u16,
+    item: [u8; 12],
+}
+
+impl DropBytes {
+    fn new(buf: [u8; DROPSTEP]) -> DropBytes {
+        let mut item: [u8; 12] = [0; 12];
+        item.copy_from_slice(&buf[16..16+12]);
+        DropBytes {
+            //bytes: [0; DROPSTEP],
+            local_id: LittleEndian::read_u16(&buf[14..16]),
+            item: item,
+            id: LittleEndian::read_u32(&buf[28..32]),
+            //item: buf[16..16+12] as [u8; 12],
+        }
+    }
+}
+
+/*impl cmd::PartialEq for DropBytes {
+    fn eq(&self, other: &DropBytes) -> bool {
+        cmd::PartialEq::cmp()
+    }
+}*/
+
+/*impl Clone for DropBytes {
+    fn clone(&self) -> DropBytes {
+        DropBytes {
+            bytes: *&self.bytes
+        }
+    }
+}*/
+
+impl cmp::Eq for DropBytes {}
+
+impl cmp::PartialEq for DropBytes {
+    fn eq(&self, other: &DropBytes) -> bool {
+        self.id == other.id
+    }
+}
+
+impl cmp::PartialOrd for DropBytes {
+    #[inline]
+    fn partial_cmp(&self, other: &DropBytes) -> Option<cmp::Ordering> {
+        PartialOrd::partial_cmp(&self.id, &other.id)
+    }
+}
+
+
+impl cmp::Ord for DropBytes {
+    #[inline]
+    fn cmp(&self, other: &DropBytes) -> cmp::Ordering {
+        Ord::cmp(&self.id, &other.id)
+    }
+}
+
+
+
+/*impl Clone for DropBytes {
+    fn clone(&self) -> DropBytes {
+        DropBytes {
+            bytes: *&self.bytes
+        }
+    }
+}
+
+impl cmp::Eq for DropBytes {}
+
+impl cmp::PartialEq for DropBytes {
+    fn eq(&self, other: &DropBytes) -> bool {
+        &self.bytes[..] == &other.bytes[..]
+    }
+}
+
+impl cmp::PartialOrd for DropBytes {
+    #[inline]
+    fn partial_cmp(&self, other: &DropBytes) -> Option<cmp::Ordering> {
+        PartialOrd::partial_cmp(&&self.bytes[..], &&other.bytes[..])
+    }
+}
+
+
+impl cmp::Ord for DropBytes {
+    #[inline]
+    fn cmp(&self, other: &DropBytes) -> cmp::Ordering {
+        Ord::cmp(&&self.bytes[..], &&other.bytes[..])
+    }
+}
+*/

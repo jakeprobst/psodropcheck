@@ -97,24 +97,25 @@ fn main() {
     thread::spawn(move || {
         {
             let mut data = anewitems.lock().unwrap();
-            data.push_back(String::from("finding offsets..."));
+            //data.push_back(String::from("finding offsets..."));
         }
         itemdrop.findoffsets();
         {
             let mut data = anewitems.lock().unwrap();
             let s = format!("found: 0x{:X}\n", itemdrop.dropoffset);
-            data.push_back(s);
+            //data.push_back(s);
         }
         loop {
             {
                 let mut data = anewitems.lock().unwrap();
                 let items = itemdrop.getchanges();
                 for item in items {
-                    data.push_back(item2string(item));
+                    //data.push_back(item2string(item));
+                    data.push_back(item);
                 }
             }
             
-            sleep(Duration::new(0,25000000));
+            sleep(Duration::new(1,0));
         }
     });
     
@@ -124,26 +125,44 @@ fn main() {
     window.set_type_hint(WindowTypeHint::Dock);
     window.set_size_request(500,230);
 
-    let textbox = TextView::new();
-    textbox.override_font(&pango::FontDescription::from_string("Deja Vu Sans Mono 12"));
+    //let textbox = TextView::new();
+    //gtk::WidgetExt::override_font(&textbox, &pango::FontDescription::from_string("Deja Vu Sans Mono 12"));
 
 
-    let scrollb = ScrolledWindow::new(None, None);
-    scrollb.add(&textbox);
+    //let scrollb = ScrolledWindow::new(None, None);
+    //scrollb.add(&textbox);
     
-    window.add(&scrollb);
+    //window.add(&scrollb);
 
-    let buffer = textbox.get_buffer().unwrap();
+    //let buffer = textbox.get_buffer().unwrap();
     //buffer.insert(&mut buffer.get_end_iter(), "finding memory offset...");
 
+    let tree = gtk::TreeView::new();
+    tree.set_headers_visible(false);
+
+    for i in &[0, 1, 2] {
+        let col = gtk::TreeViewColumn::new();
+        let cell = gtk::CellRendererText::new();
+        col.pack_start(&cell, true);
+
+        col.add_attribute(&cell, "text", *i);
+        tree.append_column(&col);
+    }
+
+    let model = gtk::ListStore::new(&[u32::static_type(), String::static_type(), String::static_type()]);
+
+    tree.set_model(Some(&model));
+    window.add(&tree);
+
     let bnewitems = newitems.clone();
-    timeout_add(250, move || {
+    timeout_add_seconds(1, move || {
         let mut data = bnewitems.lock().unwrap();
         while let Some(item) = data.pop_front() {
-            buffer.insert_markup(&mut buffer.get_end_iter(), item.as_str());
-            buffer.insert(&mut buffer.get_end_iter(), "\n");
+            //buffer.insert_markup(&mut buffer.get_end_iter(), item.as_str());
+            //buffer.insert(&mut buffer.get_end_iter(), "\n");
+            println!("item: {:#?}", item);
         }
-        textbox.scroll_to_iter(&mut buffer.get_end_iter(), 0.0, false, 0.0, 0.0);
+        //textbox.scroll_to_iter(&mut buffer.get_end_iter(), 0.0, false, 0.0, 0.0);
         return Continue(true);
     });
 
