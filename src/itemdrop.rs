@@ -3,18 +3,13 @@ use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
 use std::process::Command;
 use std::collections::{BTreeMap, BTreeSet};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
-use memmem::{Searcher, TwoWaySearcher};
-use std::vec;
 use std::cmp;
 use item;
 
-const MAGICDROPVALUE: [u8; 7] = [0xE6, 0x01, 0x00, 0x55, 0x53, 0x45, 0x00];
-const MAGICDROPOFFSET: u64 = 24;
-const MAGICDROPOFFSETPOINTER: u64 = 0x00A8D8A4;// ephinea 1.7.0?
+const MAGICDROPOFFSETPOINTER: u64 = 0x00A8D8A4;// ephinea 1.9.1
 const DROPSTEP: usize = 0x24;
 const AREASTEP: u64 =  0x1B00;
 const AREACOUNT: u64 = 18;
-const MINSTARTADDR: u64 = 0x0;
 const MAXITEMS: u64 = 150;
 
 const WEPFILE: &'static str = "items.txt";
@@ -55,25 +50,6 @@ pub struct ItemDrop {
     pub dropoffset: u64,
 }
 
-
-// TODO: implement difference for BTreeMap?
-/*fn finddiff<T: Ord + Clone>(a: &BTreeMap<T, u32>, b: &BTreeMap<T, u32>) -> Vec<T> {
-    let mut out:Vec<T> = Vec::new();
-
-    for (key, value) in a {
-        if let Some(count) = b.get(key) {
-            if value > count {
-                out.push(key.clone());
-            }
-        }
-        else {
-            out.push(key.clone());
-        }
-    }
-
-    return out;
-}*/
-
 impl ItemDrop {
     pub fn new() -> ItemDrop {
         ItemDrop {
@@ -110,30 +86,6 @@ impl ItemDrop {
         }
         return out;
     }
-    
-    fn findmagicinrange(&self, start: u64, end: u64) -> Option<u64> {
-        let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        f.seek(SeekFrom::Start(start)).unwrap();
-
-        let mut buf = vec::from_elem(0, end as usize - start as usize);
-        f.read(&mut buf).unwrap();
-
-        let magicdropvalue = MAGICDROPVALUE; // rust is dumb, consts dont live long enough I guess?
-        let search = TwoWaySearcher::new(&magicdropvalue);
-
-        let dropoffset = match search.search_in(buf.as_slice()) {
-            Some(off) => off as u64,
-            None => 0
-        };
-        
-        if dropoffset != 0 {
-            return Some(dropoffset + start - 1);
-        }
-        else {
-            return None;
-        }
-    }
-
 
     pub fn findoffsets(&mut self) {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
@@ -144,38 +96,6 @@ impl ItemDrop {
         println!("off? {:X}", LittleEndian::read_i32(&buf));
         //self.dropoffset = 16 + LittleEndian::read_i32(&buf) as u64;
         self.dropoffset = LittleEndian::read_i32(&buf) as u64;
-    }
-    
-    pub fn findoffsets_scan(&mut self) {
-        let f = File::open(format!("/proc/{}/maps", self.pid)).unwrap();
-        let br = BufReader::new(f);
-
-        for line in br.lines() {
-            match line {
-                Ok(l) => {
-                    let spl: Vec<&str> = l.split(" ").collect();
-                    if !spl[1].contains("r") || /*spl.last().unwrap().contains("stack") ||*/ spl[4] != "0" {
-                        continue;
-                    }
-                    let range: Vec<&str> = spl[0].split("-").collect();
-                    let start = u64::from_str_radix(range[0], 16).unwrap();
-                    let end = u64::from_str_radix(range[1], 16).unwrap();
-                    if start < MINSTARTADDR {
-                        continue;
-                    }
-                    match self.findmagicinrange(start, end) {
-                        Some(doff) => {
-                            self.dropoffset = doff + MAGICDROPOFFSET;
-                            println!("o: {:X}", self.dropoffset);
-                            break;
-                        }
-                        None => {
-                        }
-                    }
-                }
-                Err(_) => {;}
-            }
-        }
     }
 
     fn parseweapon(&self, item: &[u8; 12]) -> Option<ItemType> {
@@ -325,6 +245,11 @@ impl ItemDrop {
                 let mut buf:[u8; DROPSTEP] = [0; DROPSTEP];
                 f.read(&mut buf).unwrap();
 
+                if buf[16] == 0 && buf[17] == 0 && buf[18] == 0 {
+                    break;
+                }
+
+                
                 /*if buf[16] != 0 || buf[17] != 0 {
                     for b in buf.iter() {
                         print!("{:2.X} ", b);

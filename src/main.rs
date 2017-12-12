@@ -1,10 +1,8 @@
-extern crate time;
 extern crate byteorder;
 extern crate gtk;
 extern crate gdk;
 extern crate glib;
 extern crate pango;
-extern crate memmem;
 
 mod itemdrop;
 mod item;
@@ -127,76 +125,42 @@ fn main() {
     window.set_type_hint(WindowTypeHint::Dock);
     window.set_size_request(500,230);
 
-    //let textbox = TextView::new();
-    //gtk::WidgetExt::override_font(&textbox, &pango::FontDescription::from_string("Deja Vu Sans Mono 12"));
-
-
-    /*let scrollb = ScrolledWindow::new(None, None);
-    scrollb.add(&textbox);
-    
-    window.add(&scrollb);*/
-
-    //let buffer = textbox.get_buffer().unwrap();
-    //buffer.insert(&mut buffer.get_end_iter(), "finding memory offset...");
-
     let tree = gtk::TreeView::new();
     tree.set_headers_visible(false);
 
     let selection = tree.get_selection();
     selection.set_mode(gtk::SelectionMode::None);
 
-    /*for &(i, vis) in &[(0, false), (1, true)] {
-        let col = gtk::TreeViewColumn::new();
-        let cell = gtk::CellRendererText::new();
-        col.pack_start(&cell, true);
-        col.set_spacing(0);
-
-        col.add_attribute(&cell, "markup", i);
-        cell.set_visible(vis);
-        //col.add_attribute(&cell, "ypad", 0);
-        //col.set_padding(&cell, 0, 0);
-        cell.set_padding(0, 0);
-        tree.append_column(&col);
-}*/
     let col = gtk::TreeViewColumn::new();
     let cell = gtk::CellRendererText::new();
     col.pack_start(&cell, true);
     col.set_spacing(0);
 
     col.add_attribute(&cell, "markup", 0);
-    //cell.set_visible(vis);
-    //col.add_attribute(&cell, "ypad", 0);
-    //col.set_padding(&cell, 0, 0);
     cell.set_padding(0, 0);
     tree.append_column(&col);
         
     gtk::WidgetExt::override_font(&tree, &pango::FontDescription::from_string("Deja Vu Sans Mono 12"));
 
-    //let model = gtk::ListStore::new(&[u32::static_type(), String::static_type(), String::static_type()]);
     let mut rowlookup = HashMap::new();
     
-    //let model = gtk::ListStore::new(&[u32::static_type(), String::static_type()]);
     let model = gtk::ListStore::new(&[String::static_type()]);
 
     tree.set_model(Some(&model));
 
     let scrollb = ScrolledWindow::new(None, None);
     scrollb.add(&tree);
-    
     window.add(&scrollb);
-
     
-    //window.add(&tree);
-
     let bnewitems = newitems.clone();
-    timeout_add_seconds(1, move || {
+    //timeout_add_seconds(1, move || {
+    timeout_add(250, move || {
         let mut data = bnewitems.lock().unwrap();
         let mut last_iter = None;
         while let Some(item) = data.pop_front() {
 
             match item {
                 itemdrop::DropChange::Add(id, drop) => {
-                    //let iter = model.insert_with_values(None, &[0, 1], &[&id, &item2string(drop)]);
                     let iter = model.insert_with_values(None, &[0], &[&item2string(drop)]);
                     last_iter = Some(iter.clone());
                     rowlookup.insert(id, iter);
@@ -208,13 +172,7 @@ fn main() {
                     }
                 }
             }
-            //buffer.insert_markup(&mut buffer.get_end_iter(), item.as_str());
-            //buffer.insert(&mut buffer.get_end_iter(), "\n");
-            //println!("item: {:#?}", item);
         }
-        //textbox.scroll_to_iter(&mut buffer.get_end_iter(), 0.0, false, 0.0, 0.0);
-        //let path = gtk::TreePath::new_from_string(&format!("{}", model.iter_n_children(None)-1));
-        //let path
         if let Some(iter) = last_iter {
             if let Some(path) = model.get_path(&iter) { // Some(path) -> Some(&path)
                 tree.scroll_to_cell(Some(&path), None, false, 0.0, 0.0); 
