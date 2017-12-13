@@ -1,20 +1,26 @@
 use std::fs::File;
-use std::io::{Read, BufReader, BufRead, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::process::Command;
 use std::collections::{BTreeMap, BTreeSet};
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt};
 use std::cmp;
 use item;
 
-const MAGICDROPOFFSETPOINTER: u64 = 0x00A8D8A4;// ephinea 1.9.1
+const DROPPOINTER: u64 = 0x00A8D8A4;// ephinea 1.9.1
 const DROPSTEP: usize = 0x24;
 const AREASTEP: u64 =  0x1B00;
 const AREACOUNT: u64 = 18;
 const MAXITEMS: u64 = 150;
 
-const WEPFILE: &'static str = "items.txt";
-const SPECFILE: &'static str = "specials.txt";
-const TECHFILE: &'static str = "techs.txt";
+const PMTPOINTER: u64 = 0x00A8DC94;
+const PMTWEPOFFSET: u64 = 0x00;
+const PMTARMOROFFSET: u64 = 0x04;
+const PMTUNITOFFSET: u64 = 0x08;
+const PMTTOOLOFFSET: u64 = 0x0C;
+const PMTMAGOFFSET: u64 = 0x10;
+
+const UNITTXTPOINTER: u64 = 0x00A9CD50;
+const SPECIALTXTPOINTER: u64 = 0x005E4CBB;
 
 #[derive(Debug)]
 pub enum ItemType {
@@ -32,34 +38,21 @@ pub enum DropChange {
     Remove(u32)
 }
 
-fn val2str(data: &[u8]) -> String {
-    let mut out = String::new();
-    for d in data {
-        out.push_str(&format!("{:02X}", d));
-    }
-    return out;
-}
-
 pub struct ItemDrop {
     pid: String,
-    weapons: BTreeMap<String, String>,
-    specials: BTreeMap<String, String>,
-    techs: BTreeMap<String, String>,
-    //seen: BTreeMap<DropBytes, u32>,
     seen: BTreeSet<DropBytes>,
-    pub dropoffset: u64,
+}
+
+fn read_u32(file: &mut File, addr: u64) -> u64 {
+    file.seek(SeekFrom::Start(addr)).unwrap();
+    file.read_u32::<LittleEndian>().unwrap() as u64
 }
 
 impl ItemDrop {
     pub fn new() -> ItemDrop {
         ItemDrop {
             pid: ItemDrop::psopid(),
-            weapons: ItemDrop::parsefile(WEPFILE),
-            specials: ItemDrop::parsefile(SPECFILE),
-            techs: ItemDrop::parsefile(TECHFILE),
-            //seen: BTreeMap::new(),
             seen: BTreeSet::new(),
-            dropoffset: 0,
         }
     }
     
@@ -69,39 +62,102 @@ impl ItemDrop {
         return String::from(s.trim());
     }
 
-    fn parsefile(path: &str) -> BTreeMap<String, String> {
-        let mut out = BTreeMap::new();
-        let f = File::open(path).unwrap();
-        let br = BufReader::new(f);
-        for line in br.lines() {
-            match line {
-                Ok(l) => {
-                    let spl:Vec<_> = l.split(" ").collect();
-                    let key = String::from(spl[0]);
-                    let val = spl[1..].join(" ");
-                    out.insert(key, val);
-                }
-                Err(_) => {;}
+    fn pmt_item_id(&self, itype: u8, group: u8, index: u8) -> u64 {
+        let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
+        let pmtaddr = read_u32(&mut f, PMTPOINTER);
+
+        if itype == 0 {
+            let wepaddr = read_u32(&mut f, pmtaddr + PMTWEPOFFSET);
+            let groupaddr = wepaddr + 8 * group as u64;
+            let itemaddr = read_u32(&mut f, groupaddr + 4);
+
+            let idaddr = itemaddr as u64 + 44 * index as u64;
+            return read_u32(&mut f, idaddr)
+        }
+        else if itype == 1 {
+            if group == 1 || group == 2 {
+                let armoraddr = read_u32(&mut f, pmtaddr + PMTARMOROFFSET);
+
+                let groupaddr = armoraddr + 8 * (group as u64 - 1);
+                let itemaddr = read_u32(&mut f, groupaddr + 4);
+                
+                let idaddr = itemaddr as u64 + 32 * index as u64;
+                return read_u32(&mut f, idaddr)
+            }
+            else if group == 3 {
+                let unitaddr = read_u32(&mut f, pmtaddr + PMTUNITOFFSET);
+                let itemaddr = read_u32(&mut f, unitaddr + 4);
+                
+                let idaddr = itemaddr as u64 + 20 * index as u64;
+                return read_u32(&mut f, idaddr)
             }
         }
-        return out;
+        else if itype == 2 {
+            let magaddr = read_u32(&mut f, pmtaddr + PMTMAGOFFSET);
+            let itemaddr = read_u32(&mut f, magaddr + 4);
+            
+            let idaddr = itemaddr as u64 + 28 * index as u64;
+            return read_u32(&mut f, idaddr)
+        }
+        else if itype == 3 {
+            let tooladdr = read_u32(&mut f, pmtaddr + PMTTOOLOFFSET);
+
+            let groupaddr = tooladdr + 8 * group as u64;
+            let itemaddr = read_u32(&mut f, groupaddr + 4);
+            
+            let idaddr = itemaddr as u64 + 24 * index as u64;
+            return read_u32(&mut f, idaddr)
+        }
+        else if itype == 5 {
+            return index as u64;
+        }
+
+        0
     }
 
-    pub fn findoffsets(&mut self) {
+    fn read_pmt_id(&self, group: u8, pmtid: u64) -> String {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        f.seek(SeekFrom::Start(MAGICDROPOFFSETPOINTER)).unwrap();
-        let mut buf: [u8; 4] = [0, 0, 0, 0];
-        f.read(&mut buf).unwrap();
+        f.seek(SeekFrom::Start(UNITTXTPOINTER)).unwrap();
+        let unittxt = f.read_u32::<LittleEndian>().unwrap() as u64;
 
-        println!("off? {:X}", LittleEndian::read_i32(&buf));
-        //self.dropoffset = 16 + LittleEndian::read_i32(&buf) as u64;
-        self.dropoffset = LittleEndian::read_i32(&buf) as u64;
+        
+        f.seek(SeekFrom::Start(unittxt + (group as u64 * 4))).unwrap();
+        let itemaddr = f.read_u32::<LittleEndian>().unwrap() as u64;
+
+        f.seek(SeekFrom::Start(itemaddr + 4 * pmtid)).unwrap();
+        let straddr = f.read_u32::<LittleEndian>().unwrap() as u64;
+
+        let mut strbuf: [u8; 128] = [0; 128];
+        f.seek(SeekFrom::Start(straddr)).unwrap();
+        f.read(&mut strbuf).unwrap();
+
+        let mut strbuf16: [u16; 64] = [0; 64];
+        LittleEndian::read_u16_into(&strbuf[..], &mut strbuf16[..]);
+        
+        String::from_utf16_lossy(&strbuf16[0..strbuf16.iter().position(|&k| k == 0).unwrap()])
     }
+    
+    fn item_name(&self, itype: u8, group: u8, index: u8) -> String {
+        let pmtid = self.pmt_item_id(itype, group, index);
+
+        let mut pmtgroup = 1;
+        if itype == 5 { // tech
+            pmtgroup = 5;
+        }
+
+        self.read_pmt_id(pmtgroup, pmtid)
+    }
+
+    fn special_name(&self, special: u8) -> String {
+        let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
+        let base = read_u32(&mut f, SPECIALTXTPOINTER);
+
+        self.read_pmt_id(1, base + special as u64)
+    }
+       
 
     fn parseweapon(&self, item: &[u8; 12]) -> Option<ItemType> {
-        let id = val2str(&item[0..3]);
         let grind = item[3];
-        let special = val2str(&[item[4] & 0x3F]);
 
         let mut attr = BTreeMap::new();
         for i in 0..3 {
@@ -110,16 +166,15 @@ impl ItemDrop {
             }
         }
 
-        let name = match self.weapons.get(&id) {
-            Some(v) => v.clone(),
-            None => return None
+        let name = self.item_name(item[0], item[1], item[2]);
+
+        let specialtext = if item[4] != 0 {
+            self.special_name(item[4] & 0x3F)
+        }
+        else {
+            String::new()
         };
         
-        let specialtext = match self.specials.get(&special) {
-            Some(spec) => spec.clone(),
-            None => String::new()
-        };
-
         let mut attrnum: Vec<u8> = vec![0; 5]; //= Vec::new(); //Vec<u8>;
         for i in 1..6 {
             match attr.get(&i) {
@@ -145,12 +200,10 @@ impl ItemDrop {
     }
     
     fn parsearmor(&self, item: &[u8; 12]) -> Option<ItemType> {
-        let id = val2str(&item[0..3]);
-
-        let name = self.weapons.get(&id).unwrap().clone();
+        let name = self.item_name(item[0], item[1], item[2]);
         let slots = item[5];
         let dfp = item[6];
-        let evp= item[8];
+        let evp = item[8];
         
         return Some(ItemType::Armor(item::Armor {
             name: name,
@@ -161,11 +214,9 @@ impl ItemDrop {
     }
     
     fn parseshield(&self, item: &[u8; 12]) -> Option<ItemType> {
-        let id = val2str(&item[0..3]);
-
-        let name = self.weapons.get(&id).unwrap().clone();
+        let name = self.item_name(item[0], item[1], item[2]);
         let dfp = item[6];
-        let evp= item[8];
+        let evp = item[8];
         
         return Some(ItemType::Shield(item::Shield {
             name: name,
@@ -175,12 +226,7 @@ impl ItemDrop {
     }
     
     fn parsemisc(&self, item: &[u8; 12]) -> Option<ItemType> {
-        let id = val2str(&item[0..3]);
-
-        let name = match self.weapons.get(&id) {
-            Some(n) => n.clone(),
-            None => format!("[{}]", id)
-        };
+        let name = self.item_name(item[0], item[1], item[2]);
 
         return Some(ItemType::Misc(item::Misc {
             name: name,
@@ -191,9 +237,8 @@ impl ItemDrop {
     fn parsemag(&self, item: &[u8; 12]) -> Option<ItemType> {
         let mut nitem = item.clone();
         nitem[2] = 0; // what exists in item[2]?
-        let id = val2str(&nitem[0..3]);
 
-        let name = self.weapons.get(&id).unwrap().clone();
+        let name = self.item_name(item[0], item[1], item[2]);
         return Some(ItemType::Mag(item::Mag {
             name: name,
         }));
@@ -201,9 +246,7 @@ impl ItemDrop {
     
     fn parsetech(&self, item: &[u8; 12]) -> Option<ItemType> {
         let level = item[2]+1;
-        let id = val2str(&[item[4]]);
-
-        let name = self.techs.get(&id).unwrap().clone();
+        let name = self.item_name(item[0]+2, item[1], item[4]);
 
         return Some(ItemType::Tech(item::Tech {
             name: name,
@@ -233,69 +276,29 @@ impl ItemDrop {
 
     pub fn getchanges(&mut self) -> Vec<DropChange> {
         let mut f = File::open(format!("/proc/{}/mem", self.pid)).unwrap();
-        //let mut newdrops:BTreeMap<[u8; 12], u32> = BTreeMap::new();
-        //let mut newdrops:BTreeMap<DropBytes, u32> = BTreeMap::new();
+        let mut buf: [u8; 4] = [0; 4];
+        f.seek(SeekFrom::Start(DROPPOINTER)).unwrap();
+        f.read(&mut buf).unwrap();
+        let dropoffset = LittleEndian::read_i32(&buf) as u64;
+        
         let mut newdrops: BTreeSet<DropBytes> = BTreeSet::new();
-        //let mut newdrops = Vec::new();
         for area in 0..AREACOUNT {
             for item in 0..MAXITEMS {
-                let offset = self.dropoffset + AREASTEP * area + (DROPSTEP as u64) * item;
+                let offset = dropoffset + AREASTEP * area + (DROPSTEP as u64) * item;
                 f.seek(SeekFrom::Start(offset)).unwrap();
-                //let mut buf:[u8; DROPSTEP] = [0; DROPSTEP];
                 let mut buf:[u8; DROPSTEP] = [0; DROPSTEP];
                 f.read(&mut buf).unwrap();
 
                 if buf[16] == 0 && buf[17] == 0 && buf[18] == 0 {
                     break;
                 }
-
-                
-                /*if buf[16] != 0 || buf[17] != 0 {
-                    for b in buf.iter() {
-                        print!("{:2.X} ", b);
-                    }
-                    println!("");
-                }*/
-
                 
                 let drop = DropBytes::new(buf);
-                /*if drop.id != 0 {
-                    println!("{:#?}", drop);
-                }*/
-                
-
                 newdrops.insert(drop);
-
-                
-                /*f.seek(SeekFrom::Start(offset)).unwrap();
-                let mut buf:[u8; 12] = [0; 12];
-                f.read(&mut buf).unwrap();*/
-
-                //newdrops.insert(buf);
-
-                /*if !newdrops.contains_key(&buf) {
-                    newdrops.insert(buf, 0);
-                }
-
-                match newdrops.get_mut(&buf) {
-                    Some(a) => {
-                        *a = *a + 1;
-                    },
-                    None => {}
-                }*/
             }
         }
 
         let mut out: Vec<DropChange> = Vec::new();
-        /*for i in finddiff(&newdrops, &self.seen) {
-            //match self.item2string(&i) {
-            match self.parseitem(&i.bytes[0..12]) {
-                Some(s) => {
-                    out.push(s);
-                },
-                None => {}
-            }
-    }*/
 
         for d in newdrops.difference(&self.seen) {
              if let Some(s) = self.parseitem(&d.item) {
@@ -316,7 +319,6 @@ impl ItemDrop {
 
 #[derive(Debug)]
 pub struct DropBytes {
-    //pub bytes: [u8; DROPSTEP],
     id: u32, // I think this is a global id, at least
     local_id: u16,
     item: [u8; 12],
@@ -335,20 +337,6 @@ impl DropBytes {
         }
     }
 }
-
-/*impl cmd::PartialEq for DropBytes {
-    fn eq(&self, other: &DropBytes) -> bool {
-        cmd::PartialEq::cmp()
-    }
-}*/
-
-/*impl Clone for DropBytes {
-    fn clone(&self) -> DropBytes {
-        DropBytes {
-            bytes: *&self.bytes
-        }
-    }
-}*/
 
 impl cmp::Eq for DropBytes {}
 
@@ -373,36 +361,3 @@ impl cmp::Ord for DropBytes {
     }
 }
 
-
-
-/*impl Clone for DropBytes {
-    fn clone(&self) -> DropBytes {
-        DropBytes {
-            bytes: *&self.bytes
-        }
-    }
-}
-
-impl cmp::Eq for DropBytes {}
-
-impl cmp::PartialEq for DropBytes {
-    fn eq(&self, other: &DropBytes) -> bool {
-        &self.bytes[..] == &other.bytes[..]
-    }
-}
-
-impl cmp::PartialOrd for DropBytes {
-    #[inline]
-    fn partial_cmp(&self, other: &DropBytes) -> Option<cmp::Ordering> {
-        PartialOrd::partial_cmp(&&self.bytes[..], &&other.bytes[..])
-    }
-}
-
-
-impl cmp::Ord for DropBytes {
-    #[inline]
-    fn cmp(&self, other: &DropBytes) -> cmp::Ordering {
-        Ord::cmp(&&self.bytes[..], &&other.bytes[..])
-    }
-}
-*/

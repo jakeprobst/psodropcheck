@@ -4,7 +4,8 @@ version = "1.0.0"
 authors = ["Jake"]
 
 [dependencies]
-byteorder = "0.5.1"
+#byteorder = "0.5.1"
+byteorder = "1"
 gtk = {version = "*", features=["v3_16"]}
 gdk = "*"
 glib = "*"

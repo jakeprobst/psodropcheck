@@ -11,7 +11,7 @@ use std::collections::{VecDeque, HashMap};
 use std::sync::{Arc, Mutex};
 use gtk::prelude::*;
 use gdk::{WindowTypeHint};
-use gtk::{Window, WindowType, TextView, ScrolledWindow};
+use gtk::{Window, WindowType, ScrolledWindow};
 use std::thread;
 use std::time::Duration;
 use std::thread::sleep;
@@ -95,16 +95,6 @@ fn main() {
     let mut itemdrop = itemdrop::ItemDrop::new();
     let anewitems = newitems.clone();
     thread::spawn(move || {
-        {
-            let mut data = anewitems.lock().unwrap();
-            //data.push_back(String::from("finding offsets..."));
-        }
-        itemdrop.findoffsets();
-        {
-            let mut data = anewitems.lock().unwrap();
-            let s = format!("found: 0x{:X}\n", itemdrop.dropoffset);
-            //data.push_back(s);
-        }
         loop {
             {
                 let mut data = anewitems.lock().unwrap();
