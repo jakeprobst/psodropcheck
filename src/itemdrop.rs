@@ -48,6 +48,10 @@ fn read_u32(file: &mut File, addr: u64) -> u64 {
     file.read_u32::<LittleEndian>().unwrap() as u64
 }
 
+fn escape_string(s: String) -> String {
+    s.replace("&", "&amp;")
+}
+
 impl ItemDrop {
     pub fn new() -> ItemDrop {
         ItemDrop {
@@ -134,7 +138,7 @@ impl ItemDrop {
         let mut strbuf16: [u16; 64] = [0; 64];
         LittleEndian::read_u16_into(&strbuf[..], &mut strbuf16[..]);
         
-        String::from_utf16_lossy(&strbuf16[0..strbuf16.iter().position(|&k| k == 0).unwrap()])
+        escape_string(String::from_utf16_lossy(&strbuf16[0..strbuf16.iter().position(|&k| k == 0).unwrap()]))
     }
     
     fn item_name(&self, itype: u8, group: u8, index: u8) -> String {
